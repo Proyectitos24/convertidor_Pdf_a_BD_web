@@ -1,0 +1,7 @@
+para generar archivos en general:
+.\.venv\Scripts\Activate.ps1
+>> python batch_convert.py
+
+para generar archivos de cajas azules:
+
+python cajas_azules.py 
