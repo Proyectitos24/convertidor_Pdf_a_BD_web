@@ -13,6 +13,13 @@ st.title("Convertidor PDF → DB")
 st.write("Sube uno o varios PDF y descarga los archivos .db")
 
 
+if "generated_files" not in st.session_state:
+    st.session_state.generated_files = []
+
+if "conversion_resumen" not in st.session_state:
+    st.session_state.conversion_resumen = []
+
+
 def detectar_tipo_pdf(pdf_path: Path) -> str:
     doc = fitz.open(str(pdf_path))
     try:
@@ -32,11 +39,25 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
 )
 
-if st.button("Convertir"):
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    convertir = st.button("Convertir", use_container_width=True)
+
+with col2:
+    limpiar = st.button("Limpiar resultados", use_container_width=True)
+
+if limpiar:
+    st.session_state.generated_files = []
+    st.session_state.conversion_resumen = []
+    st.rerun()
+
+if convertir:
     if not uploaded_files:
         st.warning("Primero sube al menos un PDF.")
     else:
         resumen = []
+        generated_files = []
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_root = Path(tmp_dir)
@@ -45,8 +66,6 @@ if st.button("Convertir"):
 
             input_dir.mkdir(parents=True, exist_ok=True)
             out_root.mkdir(parents=True, exist_ok=True)
-
-            generated_db_files = []
 
             for uploaded_file in uploaded_files:
                 safe_name = Path(uploaded_file.name).name
@@ -68,7 +87,10 @@ if st.button("Convertir"):
                             continue
 
                         db_path = Path(result["db_saved"])
-                        generated_db_files.append(db_path)
+                        generated_files.append({
+                            "name": db_path.name,
+                            "data": db_path.read_bytes(),
+                        })
 
                         resumen.append({
                             "archivo": safe_name,
@@ -81,13 +103,20 @@ if st.button("Convertir"):
                             pdf_path, out_root
                         )
 
+                        nombres_generados = []
+
                         for db in generados:
-                            generated_db_files.append(Path(db))
+                            db_path = Path(db)
+                            generated_files.append({
+                                "name": db_path.name,
+                                "data": db_path.read_bytes(),
+                            })
+                            nombres_generados.append(db_path.name)
 
                         resumen.append({
                             "archivo": safe_name,
                             "estado": "ok",
-                            "detalle": ", ".join(Path(x).name for x in generados),
+                            "detalle": ", ".join(nombres_generados),
                         })
 
                 except Exception as e:
@@ -97,22 +126,27 @@ if st.button("Convertir"):
                         "detalle": str(e),
                     })
 
-            if not generated_db_files:
-                st.error("No se generó ningún .db")
-                st.write(resumen)
-            else:
-                st.success(f"Conversión completada. DB generados: {len(generated_db_files)}")
-                st.write(resumen)
+        st.session_state.generated_files = generated_files
+        st.session_state.conversion_resumen = resumen
 
-                st.subheader("Descargar archivos .db")
+if st.session_state.generated_files:
+    st.success(
+        f"Conversión completada. DB generados: {len(st.session_state.generated_files)}"
+    )
+    st.write(st.session_state.conversion_resumen)
 
-                for i, db_path in enumerate(generated_db_files, start=1):
-                    db_bytes = db_path.read_bytes()
+    st.subheader("Descargar archivos .db")
 
-                    st.download_button(
-                        label=f"Descargar {db_path.name}",
-                        data=db_bytes,
-                        file_name=db_path.name,
-                        mime="application/octet-stream",
-                        key=f"db_{i}_{db_path.name}",
-                    )
+    for i, item in enumerate(st.session_state.generated_files, start=1):
+        st.download_button(
+            label=f"Descargar {item['name']}",
+            data=item["data"],
+            file_name=item["name"],
+            mime="application/octet-stream",
+            key=f"db_{i}_{item['name']}",
+            on_click="ignore",
+            use_container_width=True,
+        )
+elif st.session_state.conversion_resumen:
+    st.error("No se generó ningún .db")
+    st.write(st.session_state.conversion_resumen)
