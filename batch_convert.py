@@ -10,6 +10,15 @@ import fitz  # PyMuPDF
 TIENDAS = {"14140", "14102", "14017", "14196", "14043"}
 
 TOL_Y = 2.0  # tolerancia para agrupar palabras por línea
+PALLET_ENTERO_UN_BULTO = {
+    "26995",
+    "26996",
+    "263592",
+    "608",
+    "607",
+    "504",
+    "14752",
+}
 
 # ---------- extracción desde PDF ----------
 
@@ -52,11 +61,58 @@ def clean_tokens(tokens):
 
 def parse_side(tokens):
     tokens = clean_tokens(tokens)
+    if not tokens:
+        return None
 
-    # primer código numérico
+    # -------------------------------------------------
+    # CASO ESPECIAL 1:
+    # S 360 608 LECHE ENTERA DIALA 1 L 60
+    # -------------------------------------------------
+    if (
+        len(tokens) >= 5
+        and tokens[0] in ("S", "P")
+        and tokens[1].isdigit()
+        and tokens[2].isdigit()
+        and tokens[-1].isdigit()
+    ):
+        codigo = tokens[2]
+        descripcion = " ".join(tokens[3:-1]).strip()
+        cantidad_real = int(tokens[-1])
+
+        if descripcion:
+            if codigo in PALLET_ENTERO_UN_BULTO:
+                return codigo, descripcion, 1
+            return codigo, descripcion, cantidad_real
+
+    # -------------------------------------------------
+    # CASO ESPECIAL 2:
+    # 608 LECHE ENTERA DIALA 1 L 60 S 360
+    # -------------------------------------------------
+    if tokens[-2:] and len(tokens) >= 5:
+        special_idx = None
+        # buscamos S/P con número antes y después
+        for i in range(2, len(tokens) - 1):
+            if tokens[i] in ("S", "P") and tokens[i - 1].isdigit() and tokens[i + 1].isdigit():
+                special_idx = i
+                break
+
+        if special_idx is not None and tokens[0].isdigit():
+            codigo = tokens[0]
+            cantidad_real = int(tokens[special_idx - 1])
+            descripcion = " ".join(tokens[1:special_idx - 1]).strip()
+
+            if descripcion:
+                if codigo in PALLET_ENTERO_UN_BULTO:
+                    return codigo, descripcion, 1
+                return codigo, descripcion, cantidad_real
+
+    # -------------------------------------------------
+    # CASO NORMAL
+    # B 18 85 AGUA MINERAL FONT VELLA 1,5 L 3
+    # -------------------------------------------------
     code_idx = None
     for i, t in enumerate(tokens):
-        if t.isdigit() and 3 <= len(t) <= 12:
+        if t.isdigit() and 2 <= len(t) <= 12:
             code_idx = i
             break
     if code_idx is None:
@@ -64,21 +120,20 @@ def parse_side(tokens):
 
     codigo = tokens[code_idx]
 
-    # quitar duplicado inmediato del código (a veces repite)
     if code_idx + 1 < len(tokens) and tokens[code_idx + 1] == codigo:
         tokens.pop(code_idx + 1)
 
-    # buscar patrón: (cantidad) (B/U) (unidades)
     q_idx = None
     for i in range(code_idx + 1, len(tokens) - 1):
         if tokens[i] in ("B", "U") and tokens[i - 1].isdigit() and tokens[i + 1].isdigit():
             q_idx = i - 1
             break
+
     if q_idx is None:
         return None
 
     cantidad = int(tokens[q_idx])
-    descripcion = " ".join(tokens[code_idx + 1 : q_idx]).strip()
+    descripcion = " ".join(tokens[code_idx + 1:q_idx]).strip()
     if not descripcion:
         return None
 

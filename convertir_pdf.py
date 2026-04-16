@@ -146,6 +146,19 @@ import fitz  # PyMuPDF
 TOL_Y = 2.0
 MOVE_PDFS = True  # True = mueve el PDF a la carpeta destino / False = solo copia
 
+PALLET_ENTERO_UN_BULTO = {
+    "26995",
+    "26996",
+    "263592",
+    "608",
+    "607",
+    "504",
+}
+
+PALLET_ENTERO_CONDICIONAL = {
+    "14752",
+}
+
 # ---------- UI (Windows) ----------
 def pick_files_and_folder():
     import tkinter as tk
@@ -197,14 +210,44 @@ def clean_tokens(tokens):
 
 def parse_side_rf626a(tokens):
     """
-    RF626A: CODIGO ... CANTIDAD (B/U) UNIDADES
-    (y soporta códigos de 2 dígitos)
+    Caso normal RF626A:
+      B 6 296004 PAPEL MULTIUSOS 3CAP LALLA 1
+      -> formato normal con cantidad + B/U + unidades
+
+    Caso especial palet entero:
+      S 360 608 LECHE ENTERA DIALA 1 L 60
+      -> código 608, descripción 'LECHE ENTERA DIALA 1 L', cantidad real 60
+      pero para ciertos códigos lo guardamos como 1 bulto.
     """
     tokens = clean_tokens(tokens)
     if not tokens:
         return None
 
-    # Código: normalmente es el primer token
+    # ---- CASO ESPECIAL: palet entero / semipalet ----
+    # Ejemplo:
+    # S 360 608 LECHE ENTERA DIALA 1 L 60
+    if (
+        len(tokens) >= 5
+        and tokens[0] in ("S", "P")
+        and tokens[1].isdigit()
+        and tokens[2].isdigit()
+        and tokens[-1].isdigit()
+    ):
+        codigo = tokens[2]
+        descripcion = " ".join(tokens[3:-1]).strip()
+        cantidad_real = int(tokens[-1])
+
+        if not descripcion:
+            return None
+
+        if codigo in PALLET_ENTERO_UN_BULTO or codigo in PALLET_ENTERO_CONDICIONAL:
+            return codigo, descripcion, 1
+
+        # si viniera otro código especial no contemplado,
+        # de momento conserva la cantidad real
+        return codigo, descripcion, cantidad_real
+
+    # ---- CASO NORMAL ----
     code_idx = None
     if tokens[0].isdigit() and 2 <= len(tokens[0]) <= 12:
         code_idx = 0
@@ -218,12 +261,10 @@ def parse_side_rf626a(tokens):
 
     codigo = tokens[code_idx]
 
-    # patrón cantidad + (B/U) + unidades
     q_idx = None
     for i in range(code_idx + 2, len(tokens) - 1):
         if tokens[i] in ("B", "U") and tokens[i - 1].isdigit() and tokens[i + 1].isdigit():
             q_idx = i - 1
-            fmt_idx = i
             break
     if q_idx is None:
         return None
