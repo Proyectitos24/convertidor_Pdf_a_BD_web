@@ -18,6 +18,7 @@ PALLET_ENTERO_UN_BULTO = {
     "607",
     "504",
     "14752",
+    "10626",
 }
 
 # ---------- extracción desde PDF ----------
@@ -125,7 +126,7 @@ def parse_side(tokens):
 
     q_idx = None
     for i in range(code_idx + 1, len(tokens) - 1):
-        if tokens[i] in ("B", "U") and tokens[i - 1].isdigit() and tokens[i + 1].isdigit():
+        if tokens[i] in ("B", "U", "J") and tokens[i - 1].isdigit() and tokens[i + 1].isdigit():
             q_idx = i - 1
             break
 

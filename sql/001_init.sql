@@ -32,7 +32,8 @@ values
     ('14140', 'Tienda 14140'),
     ('14102', 'Tienda 14102'),
     ('14017', 'Tienda 14017'),
-    ('14196', 'Tienda 14196')
+    ('14196', 'Tienda 14196'),
+    ('14043', 'Tienda 14043')
 on conflict (code) do update
 set name = excluded.name,
     active = true;
