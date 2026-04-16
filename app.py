@@ -1,19 +1,43 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
 from services.conversion_service import convert_uploaded_files
-from services.r2_service import build_object_key, generate_download_url, upload_db_bytes
+from services.r2_service import build_object_key, upload_db_bytes, download_db_bytes
 from services.store_db import (
     get_store_by_code,
     insert_converted_file,
     list_active_stores,
     list_ready_files,
     mark_expired_files,
+    mark_file_downloaded,
 )
 
 
 st.set_page_config(page_title="Convertidor PDF → DB", layout="centered")
+st.markdown("""
+<style>
+div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlockBorderWrapper"] {
+    padding: 0.45rem 0.8rem 0.45rem 0.8rem;
+}
+div[data-testid="stDownloadButton"] > button {
+    min-height: 42px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+APP_TZ = ZoneInfo("Europe/Madrid")
+
+
+def next_midnight_utc():
+    now_local = datetime.now(APP_TZ)
+    tomorrow = now_local.date() + timedelta(days=1)
+    midnight_local = datetime.combine(tomorrow, time.min, tzinfo=APP_TZ)
+    return midnight_local.astimezone(timezone.utc)
 
 
 def init_state():
@@ -129,7 +153,7 @@ def render_convert_tab():
                 return
 
             created_at = datetime.now(timezone.utc)
-            expires_at = created_at + timedelta(hours=24)
+            expires_at = next_midnight_utc()
 
             saved_count = 0
 
@@ -152,7 +176,7 @@ def render_convert_tab():
 
             st.session_state.flash_message = (
                 f"Se guardaron {saved_count} archivos para esta tienda. "
-                f"Estarán visibles 24 horas."
+                f"Los archivos, estarán visibles hasta las 00:00"
             )
             st.session_state.last_summary = resumen
             st.rerun()
@@ -161,7 +185,7 @@ def render_convert_tab():
 def render_files_tab():
     store = st.session_state.selected_store
 
-    st.subheader("Archivos disponibles (24h)")
+    st.subheader("Archivos disponibles (hasta las 00:00)")
 
     mark_expired_files(store["id"])
     files = list_ready_files(store["id"])
@@ -171,21 +195,41 @@ def render_files_tab():
         return
 
     for row in files:
-        url = generate_download_url(
-            object_key=row["object_key"],
-            download_name=row["db_file_name"],
-            expires_in=900,
-        )
+        downloaded = row.get("downloaded_at") is not None
+        db_bytes = download_db_bytes(row["object_key"])
 
         with st.container(border=True):
-            st.write(f"**{row['db_file_name']}**")
-            st.caption(f"PDF origen: {row['original_pdf_name']}")
-            st.caption(
-                f"Creado: {format_dt(row['created_at'])} | "
-                f"Expira: {format_dt(row['expires_at'])}"
-            )
-            st.caption(f"Tamaño: {row['size_bytes']} bytes")
-            st.link_button("Descargar", url, use_container_width=True)
+            col_info, col_btn = st.columns([4.7, 1.3])
+
+            with col_info:
+                estado = "✅ Descargado" if downloaded else "🕓 Pendiente"
+
+                st.markdown(f"**{row['db_file_name']}**")
+
+                info_html = f"""
+                    <div style="line-height:1.25; font-size:0.95rem; margin-top:0.2rem; padding-bottom:0.35rem;">
+                        <div style="margin-bottom:0.28rem;">
+                            {estado} | PDF: {row['original_pdf_name']} | Tamaño: {row['size_bytes']} bytes
+                        </div>
+                        <div style="margin-bottom:0.28rem;">
+                            Creado: {format_dt(row['created_at'])} | Expira: {format_dt(row['expires_at'])}
+                        </div>
+                        {"<div style='margin-bottom:0.25rem;'>Descargado: " + format_dt(row['downloaded_at']) + "</div>" if downloaded else ""}
+                    </div>
+                """
+                st.markdown(info_html, unsafe_allow_html=True)
+
+            with col_btn:
+                st.download_button(
+                    label="Volver a descargar" if downloaded else "Descargar",
+                    data=db_bytes,
+                    file_name=row["db_file_name"],
+                    mime="application/octet-stream",
+                    key=f"download_{row['id']}",
+                    on_click=mark_file_downloaded,
+                    args=(row["id"],),
+                    use_container_width=True,
+                )
 
 
 def main():
@@ -198,11 +242,8 @@ def main():
     st.title("Convertidor PDF → DB")
     render_header()
 
-    if st.session_state.flash_message:
-        st.success(st.session_state.flash_message)
-
-    if st.session_state.last_summary:
-        st.write(st.session_state.last_summary)
+    if st.session_state.get("flash_message"):
+        st.success(st.session_state["flash_message"])
 
     tab1, tab2 = st.tabs(["Convertir", "Archivos 24h"])
 

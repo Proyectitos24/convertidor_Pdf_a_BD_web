@@ -49,3 +49,10 @@ def generate_download_url(object_key: str, download_name: str, expires_in: int =
         },
         ExpiresIn=expires_in,
     )
+
+def download_db_bytes(object_key: str) -> bytes:
+    response = get_r2_client().get_object(
+        Bucket=get_bucket_name(),
+        Key=object_key,
+    )
+    return response["Body"].read()
