@@ -78,7 +78,7 @@ def list_ready_files(store_id: str):
     response = (
         get_admin_client()
         .table("converted_files")
-        .select("id, original_pdf_name, db_file_name, object_key, size_bytes, created_at, expires_at")
+        .select("id, original_pdf_name, db_file_name, object_key, size_bytes, created_at, expires_at, downloaded_at")
         .eq("store_id", store_id)
         .eq("status", "ready")
         .gt("expires_at", now_iso)
@@ -87,3 +87,14 @@ def list_ready_files(store_id: str):
     )
 
     return response.data or []
+
+def mark_file_downloaded(file_id: str):
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    (
+        get_admin_client()
+        .table("converted_files")
+        .update({"downloaded_at": now_iso})
+        .eq("id", file_id)
+        .execute()
+    )
