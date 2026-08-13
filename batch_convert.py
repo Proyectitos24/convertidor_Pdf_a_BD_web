@@ -6,6 +6,8 @@ from collections import defaultdict
 
 import fitz  # PyMuPDF
 
+from services import grupo_packinglist as grp
+
 # Carpeta/tiendas esperadas (si viene otra tienda, igual se crea Tienda_<codigo>)
 TIENDAS = {"14140", "14102", "14017", "14196", "14043"}
 
@@ -180,7 +182,7 @@ def ensure_schema(cur):
         )
     """)
 
-def write_db(etiqueta, acc, out_path):
+def write_db(etiqueta, acc, out_path, grupo, grupo_fuente, formato_pdf):
     conn = sqlite3.connect(out_path)
     cur = conn.cursor()
     ensure_schema(cur)
@@ -200,6 +202,8 @@ def write_db(etiqueta, acc, out_path):
             (etiqueta, codigo, descripcion, cantidad),
         )
 
+    grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf)
+
     conn.commit()
     conn.close()
 
@@ -211,6 +215,7 @@ def process_pdf(pdf_path: Path, out_root: Path):
 
     tienda = get_tienda(first_text)
     fecha = get_fecha(first_text)
+    formato_pdf = grp.detectar_formato_pdf(first_text, por_defecto="RF626A")
 
     tienda_folder = out_root / f"Tienda_{tienda}"
     day_folder = tienda_folder / fecha
@@ -222,12 +227,22 @@ def process_pdf(pdf_path: Path, out_root: Path):
 
     # por_etiqueta -> (codigo,descripcion)->cantidad
     por_etiqueta = defaultdict(lambda: defaultdict(int))
+    # areas_por_etiqueta -> lista de valores de Area vistos para esa etiqueta
+    # (solo en paginas con un bloque de ETIQUETA real; una pagina de cierre
+    # sin Area/CONTENEDOR/ETIQUETA no aporta nada aqui).
+    areas_por_etiqueta = defaultdict(list)
 
     for page in doc:
         page_text = page.get_text("text") or ""
         etq = get_etiqueta(page_text)
         for codigo, descripcion, cantidad in extract_items_from_page(page):
             por_etiqueta[etq][(codigo, descripcion)] += cantidad
+
+        etq_real = grp.extraer_etiqueta_real(page_text)
+        if etq_real is not None:
+            area = grp.extraer_area_pagina(page_text)
+            if area:
+                areas_por_etiqueta[etq_real].append(area)
 
     # mover/copy PDF al folder
     dest_pdf = pdfs_folder / pdf_path.name
@@ -243,7 +258,8 @@ def process_pdf(pdf_path: Path, out_root: Path):
     for etq, acc in por_etiqueta.items():
         db_name = f"packinglist_{tienda}_{fecha}_etq_{etq}.db"
         out_db = db_folder / db_name
-        write_db(etq, acc, str(out_db))
+        grupo, grupo_fuente = grp.resolver_grupo(areas_por_etiqueta.get(etq, []))
+        write_db(etq, acc, str(out_db), grupo, grupo_fuente, formato_pdf)
         generados.append(out_db)
 
     return tienda, fecha, dest_pdf, generados
