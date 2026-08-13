@@ -143,6 +143,8 @@ from collections import defaultdict
 
 import fitz  # PyMuPDF
 
+from services import grupo_packinglist as grp
+
 TOL_Y = 2.0
 MOVE_PDFS = True  # True = mueve el PDF a la carpeta destino / False = solo copia
 
@@ -314,7 +316,7 @@ def ensure_schema(cur):
         )
     """)
 
-def write_db(etiqueta, acc, out_path: Path):
+def write_db(etiqueta, acc, out_path: Path, grupo, grupo_fuente, formato_pdf):
     conn = sqlite3.connect(out_path)
     cur = conn.cursor()
     ensure_schema(cur)
@@ -334,6 +336,8 @@ def write_db(etiqueta, acc, out_path: Path):
             (etiqueta, codigo, descripcion, cantidad),
         )
 
+    grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf)
+
     conn.commit()
     conn.close()
 
@@ -344,6 +348,7 @@ def process_pdf(pdf_path: Path, out_root: Path):
 
     tienda = get_tienda(first_text)
     fecha = get_fecha(first_text)
+    formato_pdf = grp.detectar_formato_pdf(first_text, por_defecto="RF626A")
 
     tienda_folder = out_root / f"Tienda_{tienda}"
     day_folder = tienda_folder / fecha
@@ -354,6 +359,7 @@ def process_pdf(pdf_path: Path, out_root: Path):
 
     # por_etiqueta -> (codigo,descripcion)->cantidad
     por_etiqueta = defaultdict(lambda: defaultdict(int))
+    areas_por_etiqueta = defaultdict(list)
 
     for page in doc:
         page_text = page.get_text("text") or ""
@@ -361,6 +367,12 @@ def process_pdf(pdf_path: Path, out_root: Path):
 
         for codigo, descripcion, cantidad in extract_items_rf626a(page):
             por_etiqueta[etq][(codigo, descripcion)] += cantidad
+
+        etq_real = grp.extraer_etiqueta_real(page_text)
+        if etq_real is not None:
+            area = grp.extraer_area_pagina(page_text)
+            if area:
+                areas_por_etiqueta[etq_real].append(area)
 
     # mover/copy PDF
     dest_pdf = pdfs_folder / pdf_path.name
@@ -379,7 +391,8 @@ def process_pdf(pdf_path: Path, out_root: Path):
     out_dbs = []
     for etq, acc in por_etiqueta.items():
         out_db = db_folder / f"packinglist_{tienda}_{fecha}_etq_{etq}.db"
-        write_db(etq, acc, out_db)
+        grupo, grupo_fuente = grp.resolver_grupo(areas_por_etiqueta.get(etq, []))
+        write_db(etq, acc, out_db, grupo, grupo_fuente, formato_pdf)
         out_dbs.append(out_db)
 
     return tienda, fecha, dest_pdf, out_dbs

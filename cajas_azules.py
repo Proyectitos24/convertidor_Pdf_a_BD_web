@@ -5,6 +5,8 @@ from collections import defaultdict
 from pathlib import Path
 import fitz  # PyMuPDF
 
+from services import grupo_packinglist as grp
+
 # ==== CONFIG ====
 TOL_Y = 2.0
 TIENDAS_PREF = {"14140", "14102", "14017", "14196", "14043"}  # solo para “orden”, no limita
@@ -135,7 +137,7 @@ def ensure_schema(cur):
         )
     """)
 
-def write_db(etiqueta, acc, out_db_path: Path):
+def write_db(etiqueta, acc, out_db_path: Path, grupo, grupo_fuente, formato_pdf):
     conn = sqlite3.connect(out_db_path)
     cur = conn.cursor()
     ensure_schema(cur)
@@ -154,6 +156,8 @@ def write_db(etiqueta, acc, out_db_path: Path):
             "INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta) VALUES (?, ?, ?, ?, 0)",
             (etiqueta, codigo, descripcion, cantidad),
         )
+
+    grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf)
 
     conn.commit()
     conn.close()
@@ -181,9 +185,16 @@ def process_pdf(pdf_path: Path, out_root: Path):
     db_folder.mkdir(parents=True, exist_ok=True)
 
     acc = defaultdict(int)
+    areas_vistas = []
     for page in doc:
         for codigo, descripcion, cantidad in extract_items_rf625a(page):
             acc[(codigo, descripcion)] += cantidad
+
+        area = grp.extraer_area_pagina(page.get_text("text") or "")
+        if area:
+            areas_vistas.append(area)
+
+    grupo, grupo_fuente = grp.resolver_grupo(areas_vistas)
 
     # mover PDF a destino
     dest_pdf = pdfs_folder / pdf_path.name
@@ -196,7 +207,7 @@ def process_pdf(pdf_path: Path, out_root: Path):
 
     # DB con fecha + albarán (y tienda)
     out_db = db_folder / f"cajas_azules_{tienda}_{fecha}_alb_{albaran}.db"
-    write_db(etiqueta, acc, out_db)
+    write_db(etiqueta, acc, out_db, grupo, grupo_fuente, "RF625A")
 
     return {
         "ok": True,
