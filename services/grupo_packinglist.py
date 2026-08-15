@@ -40,6 +40,32 @@ AREA_A_GRUPO = {
 
 GRUPOS_VALIDOS = frozenset(AREA_A_GRUPO.values()) | {SIN_CLASIFICAR}
 
+# Orden y etiqueta visible para la interfaz (pestaña "Archivos 24h").
+# Unica fuente de verdad para la presentacion del grupo: no la dupliques
+# en app.py ni en los modulos de ui/.
+GRUPO_ORDEN = [
+    "almacen_central",
+    "seco",
+    "refrigerado",
+    "congelado",
+    "fruta_verdura",
+    "pollo_carne",
+    "sin_clasificar",
+]
+
+GRUPO_ETIQUETAS = {
+    "almacen_central": "Almacén Central",
+    "seco": "Seco",
+    "refrigerado": "Refrigerado",
+    "congelado": "Congelado",
+    "fruta_verdura": "Fruta y Verdura",
+    "pollo_carne": "Pollo/Carne",
+    "sin_clasificar": "Sin clasificar",
+}
+
+assert set(GRUPO_ORDEN) == GRUPOS_VALIDOS, "GRUPO_ORDEN ha quedado desincronizado de GRUPOS_VALIDOS"
+assert set(GRUPO_ETIQUETAS) == GRUPOS_VALIDOS, "GRUPO_ETIQUETAS ha quedado desincronizado de GRUPOS_VALIDOS"
+
 # Ancla al campo "Area" al inicio de linea (permitiendo espacios de
 # indentacion), con puntos y dos puntos de longitud variable. El valor
 # termina antes de "PARTICION" o al final de la linea.

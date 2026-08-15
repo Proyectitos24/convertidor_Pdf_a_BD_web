@@ -30,13 +30,47 @@ def build_object_key(store_code: str, db_file_name: str) -> str:
     return f"stores/{store_code}/{now:%Y/%m/%d}/{random_part}_{db_file_name}"
 
 
-def upload_db_bytes(object_key: str, data: bytes):
+def upload_bytes(object_key: str, data: bytes, content_type: str):
+    """Sube bytes ya materializados en memoria con un Content-Type explícito."""
     get_r2_client().put_object(
         Bucket=get_bucket_name(),
         Key=object_key,
         Body=data,
-        ContentType="application/octet-stream",
+        ContentType=content_type,
     )
+
+
+def upload_fileobj(object_key: str, fileobj, content_type: str):
+    """
+    Sube un objeto file-like (p.ej. UploadedFile de Streamlit) directamente
+    como Body, sin materializar una copia adicional completa en memoria
+    vía getvalue()/read(). El llamador es responsable de haber validado
+    el contenido y de dejar el cursor posicionado donde deba empezar la
+    lectura (normalmente en 0) antes de llamar a esta función.
+    """
+    get_r2_client().put_object(
+        Bucket=get_bucket_name(),
+        Key=object_key,
+        Body=fileobj,
+        ContentType=content_type,
+    )
+
+
+def delete_object(object_key: str):
+    """
+    Borra un objeto de R2. Igual que el resto de operaciones S3-compatibles,
+    borrar una clave que ya no existe no lanza error (comportamiento propio
+    de la API DeleteObject de S3/R2): la operación es idempotente por
+    diseño del propio servicio, no por lógica añadida aquí.
+    """
+    get_r2_client().delete_object(
+        Bucket=get_bucket_name(),
+        Key=object_key,
+    )
+
+
+def upload_db_bytes(object_key: str, data: bytes):
+    upload_bytes(object_key, data, content_type="application/octet-stream")
 
 
 def generate_download_url(object_key: str, download_name: str, expires_in: int = 900) -> str:

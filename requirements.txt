@@ -3,3 +3,4 @@ PyMuPDF
 supabase==2.24.0
 boto3
 botocore
+tzdata
