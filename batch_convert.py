@@ -7,6 +7,7 @@ from collections import defaultdict
 import fitz  # PyMuPDF
 
 from services import grupo_packinglist as grp
+from services import tipo_medida as tm
 
 # Carpeta/tiendas esperadas (si viene otra tienda, igual se crea Tienda_<codigo>)
 TIENDAS = {"14140", "14102", "14017", "14196", "14043"}
@@ -143,46 +144,64 @@ def parse_side(tokens):
     return codigo, descripcion, cantidad
 
 def extract_items_from_page(page):
+    """
+    Devuelve [(codigo, descripcion, cantidad, tipo_medida, problema)].
+    La lectura de código/descripción/cantidad no cambia (parse_side);
+    tipo_medida sale del campo Formato de la misma línea y mitad de la
+    página (services/tipo_medida.py). problema es None si es válida.
+    Una línea bajo la cabecera que el parser no reconoce pero que tiene
+    un valor en Formato también se devuelve, solo con su problema.
+    """
     words = page.get_text("words")
     width = float(page.rect.width)
     split_x = width / 2.0
+    rangos_formato = tm.columnas_formato(words, split_x)
+    rangos_cantidad = tm.columnas_cantidad(words, split_x)
+    y_cabecera = tm.y_cabecera_formato(words)
 
     line_groups = defaultdict(list)
     for x0, y0, x1, y1, w, b, l, wn in words:
         key = round(y0 / TOL_Y) * TOL_Y
-        line_groups[key].append((x0, w))
+        line_groups[key].append((x0, x1, w))
 
     items = []
     for ykey in sorted(line_groups.keys()):
         pairs = sorted(line_groups[ykey], key=lambda p: p[0])
-        left = [w for x, w in pairs if x < split_x]
-        right = [w for x, w in pairs if x >= split_x]
+        left = [p for p in pairs if p[0] < split_x]
+        right = [p for p in pairs if p[0] >= split_x]
 
-        for side in (left, right):
-            parsed = parse_side(side)
+        for lado, side in (("izq", left), ("der", right)):
+            parsed = parse_side([w for _x0, _x1, w in side])
             if parsed:
-                items.append(parsed)
+                tipo, problema = tm.tipo_de_linea(side, rangos_formato.get(lado))
+                items.append((*parsed, tipo, problema))
+            elif y_cabecera is not None and ykey > y_cabecera:
+                # Línea bajo la cabecera que el parser no reconoce pero
+                # con un valor en Formato: se informa, no se descarta.
+                problema = tm.problema_linea_no_reconocida(
+                    side, rangos_formato.get(lado), rangos_cantidad.get(lado)
+                )
+                if problema:
+                    codigo = next((w for _x0, _x1, w in side if w.isdigit()), side[0][2])
+                    items.append((codigo, None, None, None, problema))
 
     return items
 
 # ---------- escritura DB ----------
 
 def ensure_schema(cur):
-    cur.execute("CREATE TABLE IF NOT EXISTS Etiqueta (Etiqueta TEXT PRIMARY KEY)")
-    cur.execute("CREATE TABLE IF NOT EXISTS Codigo (Codigo TEXT PRIMARY KEY)")
-    cur.execute("CREATE TABLE IF NOT EXISTS Descripcion (Descripcion TEXT PRIMARY KEY)")
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS Linea (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            Etiqueta TEXT NOT NULL,
-            Codigo TEXT NOT NULL,
-            Descripcion TEXT NOT NULL,
-            Cantidad INTEGER NOT NULL,
-            Falta INTEGER DEFAULT 0
-        )
-    """)
+    tm.ensure_schema(cur)
 
 def write_db(etiqueta, acc, out_path, grupo, grupo_fuente, formato_pdf):
+    """
+    acc: {(codigo, descripcion, tipo_medida): cantidad}. Si out_path ya
+    existe con el esquema antiguo (sin TipoMedida) se lanza
+    tm.EsquemaIncompatibleError sin modificarlo.
+    """
+    invalidos = [codigo for (codigo, _d, tipo) in acc if tipo not in tm.TIPOS_MEDIDA]
+    if invalidos:
+        raise ValueError(f"TipoMedida inválido para: {', '.join(invalidos)}")
+    tm.comprobar_destino(out_path)
     conn = sqlite3.connect(out_path)
     cur = conn.cursor()
     ensure_schema(cur)
@@ -194,12 +213,12 @@ def write_db(etiqueta, acc, out_path, grupo, grupo_fuente, formato_pdf):
 
     cur.execute("INSERT INTO Etiqueta (Etiqueta) VALUES (?)", (etiqueta,))
 
-    for (codigo, descripcion), cantidad in acc.items():
+    for (codigo, descripcion, tipo), cantidad in acc.items():
         cur.execute("INSERT OR IGNORE INTO Codigo (Codigo) VALUES (?)", (codigo,))
         cur.execute("INSERT OR IGNORE INTO Descripcion (Descripcion) VALUES (?)", (descripcion,))
         cur.execute(
-            "INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta) VALUES (?, ?, ?, ?, 0)",
-            (etiqueta, codigo, descripcion, cantidad),
+            "INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta, TipoMedida) VALUES (?, ?, ?, ?, 0, ?)",
+            (etiqueta, codigo, descripcion, cantidad, tipo),
         )
 
     grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf)
@@ -225,8 +244,10 @@ def process_pdf(pdf_path: Path, out_root: Path):
     pdfs_folder.mkdir(parents=True, exist_ok=True)
     db_folder.mkdir(parents=True, exist_ok=True)
 
-    # por_etiqueta -> (codigo,descripcion)->cantidad
+    # por_etiqueta -> (codigo,descripcion,tipo_medida)->cantidad
+    # (bultos y unidades de un mismo artículo nunca se suman entre sí)
     por_etiqueta = defaultdict(lambda: defaultdict(int))
+    problemas_medida = []
     # areas_por_etiqueta -> lista de valores de Area vistos para esa etiqueta
     # (solo en paginas con un bloque de ETIQUETA real; una pagina de cierre
     # sin Area/CONTENEDOR/ETIQUETA no aporta nada aqui).
@@ -235,14 +256,32 @@ def process_pdf(pdf_path: Path, out_root: Path):
     for page in doc:
         page_text = page.get_text("text") or ""
         etq = get_etiqueta(page_text)
-        for codigo, descripcion, cantidad in extract_items_from_page(page):
-            por_etiqueta[etq][(codigo, descripcion)] += cantidad
+        for codigo, descripcion, cantidad, tipo, problema in extract_items_from_page(page):
+            if problema:
+                problemas_medida.append(f"Página {page.number + 1}, código {codigo}: {problema}")
+                continue
+            por_etiqueta[etq][(codigo, descripcion, tipo)] += cantidad
 
         etq_real = grp.extraer_etiqueta_real(page_text)
         if etq_real is not None:
             area = grp.extraer_area_pagina(page_text)
             if area:
                 areas_por_etiqueta[etq_real].append(area)
+
+    # Se valida TODO el documento antes de mover el PDF o escribir
+    # cualquier .db: nunca queda un resultado parcial.
+    if problemas_medida:
+        doc.close()
+        raise tm.MedidaError(problemas_medida)
+
+    # Un .db ya existente con el esquema antiguo nunca se modifica: se
+    # comprueba ANTES de mover el PDF para no dejar el lote a medias.
+    try:
+        for etq in por_etiqueta:
+            tm.comprobar_destino(db_folder / f"packinglist_{tienda}_{fecha}_etq_{etq}.db")
+    except tm.EsquemaIncompatibleError:
+        doc.close()
+        raise
 
     # mover/copy PDF al folder
     dest_pdf = pdfs_folder / pdf_path.name

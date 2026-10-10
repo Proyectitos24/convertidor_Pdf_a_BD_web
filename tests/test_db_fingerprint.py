@@ -23,7 +23,7 @@ from services.db_fingerprint import (
     huella_logica_de_ruta,
 )
 
-ACC = {("100", "LECHE"): 6, ("200", "AGUA"): 3}
+ACC = {("100", "LECHE", "bulto"): 6, ("200", "AGUA", "bulto"): 3}
 
 
 def _sha(path):
@@ -125,7 +125,7 @@ class HuellaSensibleTests(_Base):
 
     def test_cantidad_distinta(self):
         self.assertNotEqual(self.base, huella_logica_de_ruta(
-            self.escribir("c.db", acc={("100", "LECHE"): 7, ("200", "AGUA"): 3})
+            self.escribir("c.db", acc={("100", "LECHE", "bulto"): 7, ("200", "AGUA", "bulto"): 3})
         ))
 
     def test_falta_distinta(self):
@@ -141,19 +141,19 @@ class HuellaSensibleTests(_Base):
     def test_multiplicidad_de_filas_de_linea(self):
         # Una fila repetida debe contar: con set() sería invisible.
         self.assertNotEqual(self.base, self._modificada(
-            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta) "
-             "SELECT Etiqueta, Codigo, Descripcion, Cantidad, Falta FROM Linea WHERE Codigo = '100'", ()),
+            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta, TipoMedida) "
+             "SELECT Etiqueta, Codigo, Descripcion, Cantidad, Falta, TipoMedida FROM Linea WHERE Codigo = '100'", ()),
         ))
 
     def test_dos_copias_frente_a_tres_copias(self):
         dos = self._modificada(
-            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta) VALUES ('E1','100','LECHE',6,0)", ()),
+            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta, TipoMedida) VALUES ('E1','100','LECHE',6,0,'bulto')", ()),
         )
         ruta = self.escribir("tres.db")
         self.ejecutar_sql(
             ruta,
-            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta) VALUES ('E1','100','LECHE',6,0)", ()),
-            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta) VALUES ('E1','100','LECHE',6,0)", ()),
+            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta, TipoMedida) VALUES ('E1','100','LECHE',6,0,'bulto')", ()),
+            ("INSERT INTO Linea (Etiqueta, Codigo, Descripcion, Cantidad, Falta, TipoMedida) VALUES ('E1','100','LECHE',6,0,'bulto')", ()),
         )
         self.assertNotEqual(dos, huella_logica_de_ruta(ruta))
 

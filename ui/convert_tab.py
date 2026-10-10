@@ -19,6 +19,12 @@ Conversiones repetidas mientras una operación está en curso:
   - entre servidores, la garantía real es la reserva atómica en
     Supabase (sql/004_evitar_conversiones_duplicadas.sql).
 
+Albaranes AM613A: no traen el grupo operativo, así que cada AM613A
+distinto del lote (por SHA-256 de su contenido, no por nombre) muestra
+un selector de grupo sin valor inicial; convertir sin elegirlo no está
+permitido. La elección se refleja además en AM613A_GRUPOS_KEY para que
+sobreviva a los reruns aunque Streamlit descarte el estado del widget.
+
 El estado se restaura siempre en un finally (también tras errores o si
 Streamlit interrumpe el script), y el resultado de la última operación
 se conserva en session_state para mostrarlo tras el rerun.
@@ -30,11 +36,14 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from services.conversion_publication import construir_resultado, publicar_db_generados
-from services.conversion_service import convert_uploaded_files
+from services.conversion_service import am613a_de_subidas, convert_uploaded_files
+from services.grupo_packinglist import GRUPO_ETIQUETAS, GRUPO_ORDEN, GRUPOS_VALIDOS
 from services.time_utils import next_midnight_europe_madrid
 
 CONVERT_EN_CURSO_KEY = "convert_en_curso"
 CONVERT_RESULTADO_KEY = "convert_resultado"
+AM613A_GRUPOS_KEY = "convert_am613a_grupos"
+FORMATOS_CACHE_KEY = "convert_formatos_cache"
 
 _bloqueos_guard = threading.Lock()
 _bloqueos_por_tienda = {}
@@ -49,10 +58,48 @@ def _marcar_en_curso():
     st.session_state[CONVERT_EN_CURSO_KEY] = True
 
 
-def _ejecutar_operacion(store, uploaded_files):
+def _clave_selector_grupo(sha):
+    return f"am613a_grupo_{sha}"
+
+
+def _guardar_grupo_am613a(sha):
+    grupos = st.session_state.setdefault(AM613A_GRUPOS_KEY, {})
+    grupos[sha] = st.session_state.get(_clave_selector_grupo(sha))
+
+
+def _render_selectores_am613a(uploaded_files, en_curso):
+    """Un selector de grupo por AM613A distinto. Devuelve [(sha, nombre, grupo|None)]."""
+    cache = st.session_state.setdefault(FORMATOS_CACHE_KEY, {})
+    grupos = st.session_state.setdefault(AM613A_GRUPOS_KEY, {})
+
+    elecciones = []
+    for sha, nombre in am613a_de_subidas(uploaded_files, cache):
+        clave = _clave_selector_grupo(sha)
+        if clave not in st.session_state and grupos.get(sha) in GRUPOS_VALIDOS:
+            st.session_state[clave] = grupos[sha]
+        opciones_extra = {} if clave in st.session_state else {"index": None}
+        valor = st.selectbox(
+            f"Grupo del albarán AM613A {nombre}",
+            options=GRUPO_ORDEN,
+            format_func=lambda g: GRUPO_ETIQUETAS.get(g, g),
+            placeholder="Elige un grupo",
+            key=clave,
+            disabled=en_curso,
+            on_change=_guardar_grupo_am613a,
+            args=(sha,),
+            **opciones_extra,
+        )
+        grupo = valor if valor in GRUPOS_VALIDOS else None
+        if grupo is not None:
+            grupos[sha] = grupo
+        elecciones.append((sha, nombre, grupo))
+    return elecciones
+
+
+def _ejecutar_operacion(store, uploaded_files, grupos_am613a=None):
     """Convierte y publica. Devuelve el resultado combinado; no lanza Exception."""
     try:
-        generated_files, resumen = convert_uploaded_files(uploaded_files)
+        generated_files, resumen = convert_uploaded_files(uploaded_files, grupos_am613a or {})
         if not generated_files:
             return construir_resultado(resumen, [])
 
@@ -68,9 +115,16 @@ def _resultado_simple(nivel, mensaje):
     return {"nivel": nivel, "mensaje": mensaje, "conteo": {}, "conversion": [], "publicacion": []}
 
 
-def _procesar_solicitud(store, uploaded_files):
+def _procesar_solicitud(store, uploaded_files, elecciones_am613a=()):
     if not uploaded_files:
         return _resultado_simple("warning", "Primero sube al menos un PDF.")
+
+    sin_grupo = [nombre for _sha, nombre, grupo in elecciones_am613a if grupo is None]
+    if sin_grupo:
+        return _resultado_simple(
+            "warning", "Elige el grupo de cada albarán AM613A antes de convertir: " + ", ".join(sin_grupo)
+        )
+    grupos_am613a = {sha: grupo for sha, _nombre, grupo in elecciones_am613a}
 
     bloqueo = _bloqueo_de_tienda(store["id"])
     if not bloqueo.acquire(blocking=False):
@@ -80,7 +134,7 @@ def _procesar_solicitud(store, uploaded_files):
 
     try:
         with st.spinner("Convirtiendo y guardando archivos..."):
-            return _ejecutar_operacion(store, uploaded_files)
+            return _ejecutar_operacion(store, uploaded_files, grupos_am613a)
     finally:
         bloqueo.release()
 
@@ -115,6 +169,8 @@ def render_convert_tab():
         disabled=en_curso,
     )
 
+    elecciones_am613a = _render_selectores_am613a(uploaded_files, en_curso)
+
     st.button(
         "Convertir y guardar 24h",
         type="primary",
@@ -125,7 +181,7 @@ def render_convert_tab():
 
     if en_curso:
         try:
-            resultado = _procesar_solicitud(store, uploaded_files)
+            resultado = _procesar_solicitud(store, uploaded_files, elecciones_am613a)
             st.session_state[CONVERT_RESULTADO_KEY] = resultado
             st.session_state.last_summary = resultado.get("conversion", [])
             st.session_state.flash_message = ""

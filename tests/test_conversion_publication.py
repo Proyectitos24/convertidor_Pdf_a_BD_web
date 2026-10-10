@@ -32,7 +32,7 @@ EXPIRES = datetime(2026, 1, 16, tzinfo=timezone.utc)
 def _db_bytes(cantidad=5, grupo="seco"):
     with tempfile.TemporaryDirectory() as tmp:
         ruta = Path(tmp) / "x.db"
-        batch_convert.write_db("E1", {("100", "LECHE"): cantidad}, str(ruta), grupo, "AREA", "RF626A")
+        batch_convert.write_db("E1", {("100", "LECHE", "bulto"): cantidad}, str(ruta), grupo, "AREA", "RF626A")
         return ruta.read_bytes()
 
 

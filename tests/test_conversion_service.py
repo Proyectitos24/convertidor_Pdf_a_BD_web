@@ -146,7 +146,7 @@ class PdfsRepetidosTests(_ConCopias):
 
 
 def _escribir_db(ruta, cantidad):
-    batch_convert.write_db("E1", {("100", "LECHE"): cantidad}, str(ruta), "seco", "AREA", "RF626A")
+    batch_convert.write_db("E1", {("100", "LECHE", "bulto"): cantidad}, str(ruta), "seco", "AREA", "RF626A")
 
 
 NOMBRE_X = "packinglist_14196_2026-01-15_etq_1.db"
@@ -178,7 +178,7 @@ def _convertir_simulado(entradas):
             rutas.append(db)
         return "14196", "2026-01-15", pdf_path, rutas
 
-    with mock.patch.object(conversion_service, "detectar_tipo_pdf", return_value="packing"), \
+    with mock.patch.object(conversion_service, "detectar_formato", return_value="RF626A"), \
          mock.patch.object(batch_convert, "process_pdf", side_effect=falso_process_pdf):
         return conversion_service.convert_uploaded_files(uploads)
 
@@ -299,7 +299,7 @@ class DbsDuplicadosEnLaOperacionTests(unittest.TestCase):
             return []
 
         entradas = [("a.pdf", {NOMBRE_X: 5}), ("b.pdf", {NOMBRE_X: 6, NOMBRE_Z: 2})]
-        with mock.patch.object(convert_tab, "convert_uploaded_files", side_effect=lambda _u: _convertir_simulado(entradas)), \
+        with mock.patch.object(convert_tab, "convert_uploaded_files", side_effect=lambda *_a: _convertir_simulado(entradas)), \
              mock.patch.object(convert_tab, "publicar_db_generados", side_effect=publicar):
             resultado = convert_tab._ejecutar_operacion({"id": "tienda-a", "code": "14196"}, [object()])
 
@@ -313,7 +313,7 @@ class DbsDuplicadosEnLaOperacionTests(unittest.TestCase):
             db.write_bytes(b"no es sqlite" * 50)
             return "1", "2026-01-01", pdf_path, [db]
 
-        with mock.patch.object(conversion_service, "detectar_tipo_pdf", return_value="packing"), \
+        with mock.patch.object(conversion_service, "detectar_formato", return_value="RF626A"), \
              mock.patch.object(batch_convert, "process_pdf", side_effect=falso_process_pdf):
             generados, resumen = conversion_service.convert_uploaded_files([FakeUpload("a.pdf", b"%PDF-x")])
 
@@ -329,7 +329,7 @@ class DirectoriosSeparadosTests(unittest.TestCase):
             rutas.append((Path(pdf_path), Path(out_root), Path(pdf_path).read_bytes()))
             return "1", "2026-01-01", pdf_path, []
 
-        with mock.patch.object(conversion_service, "detectar_tipo_pdf", return_value="packing"), \
+        with mock.patch.object(conversion_service, "detectar_formato", return_value="RF626A"), \
              mock.patch.object(batch_convert, "process_pdf", side_effect=falso_process_pdf):
             conversion_service.convert_uploaded_files(
                 [FakeUpload("x.pdf", b"%PDF-1"), FakeUpload("x.pdf", b"%PDF-2")]

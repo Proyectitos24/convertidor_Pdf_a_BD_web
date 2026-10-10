@@ -13,6 +13,18 @@ import ui.convert_tab as convert_tab
 
 STORE = {"id": "tienda-1", "code": "14196", "name": "Tienda"}
 
+# Estas pruebas usan objetos de subida opacos: la detección de AM613A
+# (que lee el contenido del PDF) se cubre en test_convert_tab_am613a.py.
+_sin_am613a = mock.patch.object(convert_tab, "am613a_de_subidas", return_value=[])
+
+
+def setUpModule():
+    _sin_am613a.start()
+
+
+def tearDownModule():
+    _sin_am613a.stop()
+
 
 class SessionState(dict):
     def __getattr__(self, k):

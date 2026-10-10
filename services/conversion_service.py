@@ -21,6 +21,16 @@ Evita trabajo y resultados duplicados DENTRO de una misma operación:
 
 Los parsers, nombres de .db y contenido de cada .db no cambian: los
 bytes entregados son exactamente los que escribe process_pdf.
+
+Elección del parser: SOLO por el identificador interno de la cabecera
+(services/pdf_format.py: CPD-AM613A, CPD-RF626A, CPD-RF625A), nunca por
+el nombre del archivo. Un PDF sin identificador reconocible o con
+identificadores contradictorios queda como "error" y no se envía a
+ningún parser.
+
+AM613A (services/am613a_converter.py) necesita además el grupo elegido
+manualmente para ese PDF, identificado por el SHA-256 de su contenido
+(grupos_am613a = {sha256: grupo}); sin grupo válido no se convierte.
 """
 
 from pathlib import Path
@@ -31,20 +41,52 @@ import fitz
 
 import batch_convert
 import cajas_azules
+from services import am613a_converter
 from services.db_fingerprint import huella_logica_de_bytes
+from services.grupo_packinglist import GRUPOS_VALIDOS
+from services.pdf_format import AM613A, RF625A, RF626A, detectar_formato_bytes, detectar_formato_pdf
+
+
+def detectar_formato(pdf_path: Path) -> str:
+    """Formato por identificador interno de cabecera; lanza FormatoPdfError si no es fiable."""
+    return detectar_formato_pdf(pdf_path)
 
 
 def detectar_tipo_pdf(pdf_path: Path) -> str:
-    doc = fitz.open(str(pdf_path))
-    try:
-        first_text = doc[0].get_text("text") or ""
-    finally:
-        doc.close()
-
-    if cajas_azules.is_rf625a(first_text):
+    """Compatibilidad: 'rf625a' para RF625A, 'packing' para RF626A (lanza en otro caso)."""
+    formato = detectar_formato(pdf_path)
+    if formato == RF625A:
         return "rf625a"
+    if formato == RF626A:
+        return "packing"
+    raise ValueError(f"detectar_tipo_pdf no admite el formato {formato}")
 
-    return "packing"
+
+def am613a_de_subidas(uploaded_files, cache=None):
+    """
+    AM613A únicos (por SHA-256 del contenido) entre los PDF subidos, en
+    orden de primera aparición: [(sha256, nombre_del_primero), ...].
+    cache: dict opcional {sha256: formato | None} para no reabrir los
+    mismos PDF en cada rerun. Un PDF ilegible o sin formato reconocido
+    no aparece aquí: lo informará la conversión.
+    """
+    cache = {} if cache is None else cache
+    vistos = set()
+    resultado = []
+    for uploaded_file in uploaded_files or []:
+        contenido = uploaded_file.getvalue()
+        sha = sha256_bytes(contenido)
+        if sha in vistos:
+            continue
+        vistos.add(sha)
+        if sha not in cache:
+            try:
+                cache[sha] = detectar_formato_bytes(contenido)
+            except Exception:
+                cache[sha] = None
+        if cache[sha] == AM613A:
+            resultado.append((sha, Path(uploaded_file.name).name))
+    return resultado
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -131,7 +173,8 @@ def _resolver_nombres(resumen_por_pdf, versiones):
     return generated_files, resumen
 
 
-def convert_uploaded_files(uploaded_files):
+def convert_uploaded_files(uploaded_files, grupos_am613a=None):
+    grupos_am613a = grupos_am613a or {}
     resumen_por_pdf = []
     versiones = {}
     vistos_por_sha = {}
@@ -170,9 +213,15 @@ def convert_uploaded_files(uploaded_files):
             pdf_path.write_bytes(contenido)
 
             try:
-                tipo = detectar_tipo_pdf(pdf_path)
+                formato = detectar_formato(pdf_path)
 
-                if tipo == "rf625a":
+                if formato == AM613A:
+                    grupo = grupos_am613a.get(sha)
+                    if grupo not in GRUPOS_VALIDOS:
+                        raise ValueError("AM613A sin grupo elegido; elige un grupo y vuelve a convertir")
+                    result = am613a_converter.process_pdf(pdf_path, out_root, grupo)
+                    db_paths = [Path(result["db_saved"])]
+                elif formato == RF625A:
                     result = cajas_azules.process_pdf(pdf_path, out_root)
 
                     if not result["ok"]:
