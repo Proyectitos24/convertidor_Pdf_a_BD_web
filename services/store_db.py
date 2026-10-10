@@ -211,3 +211,104 @@ def mark_file_physically_deleted(file_id: str):
         .eq("id", file_id)
         .execute()
     )
+
+
+# ---------------------------------------------------------------------
+# Publicación sin duplicados (sql/004_evitar_conversiones_duplicadas.sql)
+# ---------------------------------------------------------------------
+# store_id llega SIEMPRE de la sesión autenticada en el servidor
+# (st.session_state.selected_store, fijado en el login), nunca de un
+# valor enviado por el navegador.
+
+
+class RespuestaRpcInesperada(Exception):
+    """Una función RPC devolvió algo que no es el objeto esperado."""
+
+
+def _rpc_objeto(response, funcion):
+    data = response.data
+    if isinstance(data, list) and len(data) == 1:
+        data = data[0]
+    if not isinstance(data, dict):
+        raise RespuestaRpcInesperada(f"{funcion}: respuesta inesperada ({data!r})")
+    return data
+
+
+def listar_disponibles_por_nombre(store_id: str, db_file_name: str):
+    """
+    Registros DISPONIBLES (status 'ready' y expires_at posterior al
+    instante UTC actual) de esta tienda con este db_file_name exacto.
+    Los caducados o eliminados no se devuelven: no bloquean una nueva
+    conversión. Las excepciones de Supabase se propagan (no equivalen
+    a "no existe").
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    response = (
+        get_admin_client()
+        .table("converted_files")
+        .select("id, object_key, db_file_name, content_fingerprint, created_at, expires_at")
+        .eq("store_id", store_id)
+        .eq("db_file_name", db_file_name)
+        .eq("status", "ready")
+        .gt("expires_at", now_iso)
+        .order("created_at")
+        .order("id")
+        .execute()
+    )
+    return response.data or []
+
+
+def reservar_publicacion(store_id: str, db_file_name: str, content_fingerprint: str, lease_seconds: int):
+    response = get_admin_client().rpc(
+        "reservar_publicacion_convertido",
+        {
+            "p_store_id": store_id,
+            "p_db_file_name": db_file_name,
+            "p_content_fingerprint": content_fingerprint,
+            "p_lease_seconds": lease_seconds,
+        },
+    ).execute()
+    return _rpc_objeto(response, "reservar_publicacion_convertido")
+
+
+def publicar_convertido_reservado(
+    store_id: str,
+    token: str,
+    original_pdf_name: str,
+    db_file_name: str,
+    object_key: str,
+    size_bytes: int,
+    created_at: datetime,
+    expires_at: datetime,
+    grupo: str,
+    content_fingerprint: str,
+):
+    response = get_admin_client().rpc(
+        "publicar_convertido_reservado",
+        {
+            "p_store_id": store_id,
+            "p_token": token,
+            "p_db_file_name": db_file_name,
+            "p_original_pdf_name": original_pdf_name,
+            "p_object_key": object_key,
+            "p_size_bytes": size_bytes,
+            "p_created_at": created_at.isoformat(),
+            "p_expires_at": expires_at.isoformat(),
+            "p_grupo": grupo or SIN_CLASIFICAR,
+            "p_content_fingerprint": content_fingerprint,
+        },
+    ).execute()
+    return _rpc_objeto(response, "publicar_convertido_reservado")
+
+
+def liberar_reserva(store_id: str, db_file_name: str, token: str):
+    response = get_admin_client().rpc(
+        "liberar_reserva_convertido",
+        {
+            "p_store_id": store_id,
+            "p_db_file_name": db_file_name,
+            "p_token": token,
+        },
+    ).execute()
+    return _rpc_objeto(response, "liberar_reserva_convertido")
