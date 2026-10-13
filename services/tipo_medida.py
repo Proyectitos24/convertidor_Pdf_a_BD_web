@@ -18,9 +18,10 @@ coincide con el "Total bultos" impreso y la de "U" con "Total
 unidades" (incluido un listado mixto 9 B / 132 U); en el RF625A la
 suma de "U" coincide con "TOTAL UNIDADES" y "TOTAL BULTOS" está vacío.
 
-Cualquier otro valor (ausente, desconocido como "S"/"P" de palet, o
-varios valores distintos en la misma línea) es un error: no se asigna
-medida y el documento no se genera.
+S/P se conservan como semipale/pale. El parser RF626A solo normaliza a
+una presentación los productos de PRODUCTOS_PRESENTACION_COMPLETA;
+los demás S/P se rechazan, sin suponer que 60 bultos siempre son uno.
+Cualquier valor ausente, desconocido o contradictorio sigue siendo error.
 """
 
 import re
@@ -28,10 +29,19 @@ import sqlite3
 
 TIPO_BULTO = "bulto"
 TIPO_UNIDAD = "unidad"
-TIPOS_MEDIDA = (TIPO_BULTO, TIPO_UNIDAD)
+TIPO_SEMIPALE = "semipale"
+TIPO_PALE = "pale"
+TIPOS_MEDIDA = (TIPO_BULTO, TIPO_UNIDAD, TIPO_SEMIPALE, TIPO_PALE)
+
+# Presentaciones completas reconocidas por el convertidor histórico.
+# No se infiere que cualquier cantidad S/P equivalga a una presentación.
+PRODUCTOS_PRESENTACION_COMPLETA = frozenset({
+    "26995", "26996", "263592", "608", "607", "504", "14752", "10626",
+})
 
 # Únicos valores del campo Formato con interpretación comprobada.
-FORMATO_A_TIPO = {"B": TIPO_BULTO, "U": TIPO_UNIDAD}
+FORMATO_A_TIPO = {"B": TIPO_BULTO, "U": TIPO_UNIDAD,
+                  "S": TIPO_SEMIPALE, "P": TIPO_PALE}
 
 COLUMNA_TIPO_MEDIDA = "TipoMedida"
 
@@ -49,7 +59,7 @@ LINEA_DDL = """
         Descripcion TEXT NOT NULL,
         Cantidad INTEGER NOT NULL,
         Falta INTEGER DEFAULT 0,
-        TipoMedida TEXT NOT NULL CHECK (TipoMedida IN ('bulto', 'unidad'))
+        TipoMedida TEXT NOT NULL CHECK (TipoMedida IN ('bulto', 'unidad', 'semipale', 'pale'))
     )
 """
 
