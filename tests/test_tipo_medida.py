@@ -105,12 +105,12 @@ def _totales_impresos(pdf, formato):
 
 class ContratoTests(unittest.TestCase):
     def test_mapeo_exacto_b_y_u(self):
-        self.assertEqual(tm.FORMATO_A_TIPO, {"B": "bulto", "U": "unidad"})
+        self.assertEqual(tm.FORMATO_A_TIPO, {"B": "bulto", "U": "unidad", "S": "semipale", "P": "pale"})
         self.assertEqual(tm.tipo_desde_formato(["B"]), ("bulto", None))
         self.assertEqual(tm.tipo_desde_formato(["U"]), ("unidad", None))
 
     def test_sin_coincidencias_parciales_ni_aproximaciones(self):
-        for valor in ("b", "u", " B", "B.", "BU", "UB", "Bulto", "UND", "S", "P", "J", "C", ""):
+        for valor in ("b", "u", " B", "B.", "BU", "UB", "Bulto", "UND", "J", "C", ""):
             with self.subTest(valor=valor):
                 tipo, problema = tm.tipo_desde_formato([valor])
                 self.assertIsNone(tipo)
@@ -434,11 +434,21 @@ class Rf626aSinteticoTests(_Sintetico):
         e = self._assert_documento_invalido([p1, p2], "Página 2, código 13963: Formato 'J' sin equivalencia")
         self.assertEqual(len(e.problemas), 1)
 
-    def test_palet_con_formato_s_no_tiene_medida_comprobada(self):
-        # El parser conserva su caso especial de palet ("... 60 S 360"),
-        # pero no hay evidencia documental de la medida de "S": se informa.
-        p = ls.rf626a_pagina([ls.rf626a_fila(("608", "LECHE ENTERA DIALA", 60, "S", 360))])
-        self._assert_documento_invalido([p], "código 608: Formato 'S' sin equivalencia")
+    def test_presentacion_desconocida_no_se_convierte_en_una(self):
+        p = ls.rf626a_pagina([ls.rf626a_fila(("999999", "ARTICULO NUEVO", 60, "S", 360))])
+        self._assert_documento_invalido([p], "Presentación S/P sin equivalencia")
+
+    def test_presentaciones_completas_conocidas_separan_s_y_p(self):
+        import fitz
+        for formato, medida in (("S", "semipale"), ("P", "pale")):
+            p = ls.rf626a_pagina([ls.rf626a_fila(("504", "LECHE SEMIDESNATADA", 60, formato, 360))])
+            ruta = self.dir / f"presentacion-{formato}.pdf"
+            ls.escribir_pdf(ruta, [p])
+            with fitz.open(ruta) as doc:
+                for modulo in (batch_convert, convertir_pdf):
+                    extractor = batch_convert.extract_items_from_page if modulo is batch_convert else convertir_pdf.extract_items_rf626a
+                    items = extractor(doc[0])
+                    self.assertIn(("504", "LECHE SEMIDESNATADA", 1, medida, None), items)
 
     def _pdf_con_formato_vacio(self, invertir=False):
         valido = ("135285", "YOGUR GRIEGO", 1, "B", 8)

@@ -174,6 +174,11 @@ def extract_items_from_page(page):
             parsed = parse_side([w for _x0, _x1, w in side])
             if parsed:
                 tipo, problema = tm.tipo_de_linea(side, rangos_formato.get(lado))
+                if tipo in (tm.TIPO_SEMIPALE, tm.TIPO_PALE):
+                    if parsed[0] not in tm.PRODUCTOS_PRESENTACION_COMPLETA:
+                        problema = "Presentación S/P sin equivalencia comprobada para este producto"
+                    else:
+                        parsed = (parsed[0], parsed[1], 1)
                 items.append((*parsed, tipo, problema))
             elif y_cabecera is not None and ykey > y_cabecera:
                 # Línea bajo la cabecera que el parser no reconoce pero
