@@ -217,7 +217,12 @@ def resolver_grupo(areas_vistas):
 # Tienda del listado: SOLO el campo explícito de cabecera
 # "TIENDA/CONCESION..: 14196/00" (los tres formatos lo imprimen). Nunca
 # el nombre del archivo ni el cuerpo del documento.
-_TIENDA_CABECERA_RE = re.compile(r"TIENDA/CONCESION\.*:\s*(\d{5})\b")
+# Acepta espacios y puntos variables en la cabecera, pero nunca busca
+# codigos de tienda en nombres de archivo ni en texto libre del documento.
+_TIENDA_CABECERA_RE = re.compile(
+    r"^\s*TIENDA\s*/\s*CONCESION\s*\.*\s*:\s*(\d{5})(?=/|\s|$)",
+    re.IGNORECASE | re.MULTILINE,
+)
 _TIENDA_VALIDA_RE = re.compile(r"^\d{5}$")
 
 
