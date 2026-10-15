@@ -147,7 +147,7 @@ def extract_items_rf625a(page):
 def ensure_schema(cur):
     tm.ensure_schema(cur)
 
-def write_db(etiqueta, acc, out_db_path: Path, grupo, grupo_fuente, formato_pdf):
+def write_db(etiqueta, acc, out_db_path: Path, grupo, grupo_fuente, formato_pdf, tienda=None):
     """
     acc: {(codigo, descripcion, tipo_medida): cantidad}. Si el destino ya
     existe con el esquema antiguo (sin TipoMedida) se lanza
@@ -176,7 +176,7 @@ def write_db(etiqueta, acc, out_db_path: Path, grupo, grupo_fuente, formato_pdf)
             (etiqueta, codigo, descripcion, cantidad, tipo),
         )
 
-    grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf)
+    grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf, tienda=tienda)
 
     conn.commit()
     conn.close()
@@ -208,7 +208,9 @@ def process_pdf(pdf_path: Path, out_root: Path):
     acc = defaultdict(int)
     areas_vistas = []
     problemas_medida = []
+    textos_paginas = []
     for page in doc:
+        textos_paginas.append(page.get_text("text") or "")
         for codigo, descripcion, cantidad, tipo, problema in extract_items_rf625a(page):
             if problema:
                 problemas_medida.append(f"Página {page.number + 1}, código {codigo}: {problema}")
@@ -245,7 +247,7 @@ def process_pdf(pdf_path: Path, out_root: Path):
             shutil.copy2(pdf_path, dest_pdf)
 
     # DB con fecha + albarán (y tienda)
-    write_db(etiqueta, acc, out_db, grupo, grupo_fuente, "RF625A")
+    write_db(etiqueta, acc, out_db, grupo, grupo_fuente, "RF625A", tienda=grp.tienda_de_paginas(textos_paginas))
 
     return {
         "ok": True,

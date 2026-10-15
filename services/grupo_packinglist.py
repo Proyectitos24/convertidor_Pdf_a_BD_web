@@ -214,6 +214,30 @@ def resolver_grupo(areas_vistas):
     return SIN_CLASIFICAR, "CONFLICTO:" + "|".join(distintas_ordenadas)
 
 
+# Tienda del listado: SOLO el campo explícito de cabecera
+# "TIENDA/CONCESION..: 14196/00" (los tres formatos lo imprimen). Nunca
+# el nombre del archivo ni el cuerpo del documento.
+_TIENDA_CABECERA_RE = re.compile(r"TIENDA/CONCESION\.*:\s*(\d{5})\b")
+_TIENDA_VALIDA_RE = re.compile(r"^\d{5}$")
+
+
+def tienda_valida(tienda):
+    """Código de tienda normalizado (5 cifras) o None si no es válido."""
+    t = str(tienda or "").strip()
+    return t if _TIENDA_VALIDA_RE.match(t) else None
+
+
+def tienda_de_paginas(textos_paginas):
+    """
+    Tienda única de la cabecera TIENDA/CONCESION de todas las páginas.
+    None si no aparece o si aparecen tiendas distintas (no es fiable).
+    """
+    vistas = set()
+    for texto in textos_paginas:
+        vistas.update(_TIENDA_CABECERA_RE.findall(texto or ""))
+    return next(iter(vistas)) if len(vistas) == 1 else None
+
+
 def ensure_metadata_table(cur):
     cur.execute(
         """
@@ -225,12 +249,14 @@ def ensure_metadata_table(cur):
     )
 
 
-def write_metadata(cur, grupo, grupo_fuente, formato_pdf):
+def write_metadata(cur, grupo, grupo_fuente, formato_pdf, tienda=None):
     """
-    Crea (si falta) y repuebla la tabla Metadata con las 4 claves fijas.
-    Borra las filas previas antes de insertar para no dejar valores
-    obsoletos al regenerar un archivo. `grupo` se valida siempre contra
-    GRUPOS_VALIDOS: nunca queda vacio ni NULL.
+    Crea (si falta) y repuebla la tabla Metadata con las 4 claves fijas y,
+    si se conoce con fiabilidad, la clave aditiva `tienda` (5 cifras, de la
+    cabecera del PDF). Clave nueva sin cambiar schema_version: las apps que
+    no la conocen la ignoran. Borra las filas previas antes de insertar
+    para no dejar valores obsoletos al regenerar un archivo. `grupo` se
+    valida siempre contra GRUPOS_VALIDOS: nunca queda vacio ni NULL.
     """
     if grupo not in GRUPOS_VALIDOS:
         grupo = SIN_CLASIFICAR
@@ -246,3 +272,6 @@ def write_metadata(cur, grupo, grupo_fuente, formato_pdf):
             ("formato_pdf", formato_pdf or ""),
         ],
     )
+    tienda = tienda_valida(tienda)
+    if tienda:
+        cur.execute("INSERT INTO Metadata (Clave, Valor) VALUES ('tienda', ?)", (tienda,))

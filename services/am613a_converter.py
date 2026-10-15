@@ -521,7 +521,7 @@ def agrupar_articulos(articulos):
     ]
 
 
-def write_db(etiqueta, articulos, out_path, grupo):
+def write_db(etiqueta, articulos, out_path, grupo, tienda=None):
     out_path = Path(out_path)
     if out_path.exists():
         raise FileExistsError(f"Ya existe {out_path.name}; no se sobrescribe")
@@ -539,7 +539,7 @@ def write_db(etiqueta, articulos, out_path, grupo):
                 "VALUES (?, ?, ?, ?, 0, ?)",
                 (etiqueta, a["codigo"], a["descripcion"], a["cantidad"], a["tipo"]),
             )
-        grp.write_metadata(cur, grupo, FUENTE_MANUAL, AM613A)
+        grp.write_metadata(cur, grupo, FUENTE_MANUAL, AM613A, tienda=tienda)
         conn.commit()
     finally:
         conn.close()
@@ -563,6 +563,7 @@ def process_pdf(pdf_path, out_root, grupo):
     out_root = Path(out_root)
     out_root.mkdir(parents=True, exist_ok=True)
     out_db = out_root / datos["nombre_db"]
-    write_db(datos["etiqueta"], datos["articulos"], out_db, grupo)
+    # La tienda ya está validada como única en extraer_cabecera.
+    write_db(datos["etiqueta"], datos["articulos"], out_db, grupo, tienda=datos["tienda"])
 
     return {**datos, "db_saved": str(out_db)}

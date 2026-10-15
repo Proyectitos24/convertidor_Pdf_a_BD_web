@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
+.streamlit/secrets-pruebas.toml
+output/
+app_pruebas_local.py
+restablecer_clave_pruebas.py
+alta_tiendas_produccion_local.py
