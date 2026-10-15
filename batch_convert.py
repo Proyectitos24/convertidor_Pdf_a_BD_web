@@ -197,7 +197,7 @@ def extract_items_from_page(page):
 def ensure_schema(cur):
     tm.ensure_schema(cur)
 
-def write_db(etiqueta, acc, out_path, grupo, grupo_fuente, formato_pdf):
+def write_db(etiqueta, acc, out_path, grupo, grupo_fuente, formato_pdf, tienda=None):
     """
     acc: {(codigo, descripcion, tipo_medida): cantidad}. Si out_path ya
     existe con el esquema antiguo (sin TipoMedida) se lanza
@@ -226,7 +226,7 @@ def write_db(etiqueta, acc, out_path, grupo, grupo_fuente, formato_pdf):
             (etiqueta, codigo, descripcion, cantidad, tipo),
         )
 
-    grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf)
+    grp.write_metadata(cur, grupo, grupo_fuente, formato_pdf, tienda=tienda)
 
     conn.commit()
     conn.close()
@@ -257,9 +257,11 @@ def process_pdf(pdf_path: Path, out_root: Path):
     # (solo en paginas con un bloque de ETIQUETA real; una pagina de cierre
     # sin Area/CONTENEDOR/ETIQUETA no aporta nada aqui).
     areas_por_etiqueta = defaultdict(list)
+    textos_paginas = []
 
     for page in doc:
         page_text = page.get_text("text") or ""
+        textos_paginas.append(page_text)
         etq = get_etiqueta(page_text)
         for codigo, descripcion, cantidad, tipo, problema in extract_items_from_page(page):
             if problema:
@@ -298,12 +300,16 @@ def process_pdf(pdf_path: Path, out_root: Path):
             import shutil
             shutil.copy2(pdf_path, dest_pdf)
 
+    # Tienda para Metadata: solo la cabecera explícita, única en todo el
+    # documento (el `tienda` del nombre puede venir de un respaldo).
+    tienda_metadata = grp.tienda_de_paginas(textos_paginas)
+
     generados = []
     for etq, acc in por_etiqueta.items():
         db_name = f"packinglist_{tienda}_{fecha}_etq_{etq}.db"
         out_db = db_folder / db_name
         grupo, grupo_fuente = grp.resolver_grupo(areas_por_etiqueta.get(etq, []))
-        write_db(etq, acc, str(out_db), grupo, grupo_fuente, formato_pdf)
+        write_db(etq, acc, str(out_db), grupo, grupo_fuente, formato_pdf, tienda=tienda_metadata)
         generados.append(out_db)
 
     return tienda, fecha, dest_pdf, generados

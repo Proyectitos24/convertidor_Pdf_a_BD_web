@@ -1,0 +1,4 @@
+[functions.albaranes-movil]
+# Cada petición valida la sesión con Supabase Auth dentro de la función.
+# El verificador legacy del gateway no admite todas las claves JWT actuales.
+verify_jwt = false

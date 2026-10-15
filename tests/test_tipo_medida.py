@@ -351,8 +351,12 @@ class MuestrasRealesTests(unittest.TestCase):
                     continue
                 with self.subTest(db=nombre):
                     grupo, fuente, formato = RESULTADO_ESPERADO[etiqueta]
+                    # La tienda sale de la cabecera TIENDA/CONCESION del PDF
+                    # real (en estas muestras coincide con la del nombre).
+                    tienda = re.search(r"_(\d{5})_", nombre).group(1)
                     self.assertEqual(datos["meta"], {
                         "schema_version": "2", "grupo": grupo, "grupo_fuente": fuente, "formato_pdf": formato,
+                        "tienda": tienda,
                     })
 
     def test_falta_sigue_siendo_cero(self):
@@ -669,7 +673,10 @@ class HuellaYDuplicadosTests(_Sintetico):
             ruta_nueva.write_bytes(nuevo["data"])
             datos_nuevo = _leer(ruta_nueva)
         self.assertEqual(datos_nuevo["antiguas"], datos_antiguo["antiguas"])
-        self.assertEqual(datos_nuevo["meta"], datos_antiguo["meta"])
+        # Mismas claves de siempre; el nuevo añade la tienda de la cabecera.
+        meta_nuevo = dict(datos_nuevo["meta"])
+        self.assertEqual(meta_nuevo.pop("tienda"), "14196")
+        self.assertEqual(meta_nuevo, datos_antiguo["meta"])
         self.assertNotEqual(nuevo["fingerprint"], huella_logica_de_ruta(antiguo))
 
     def test_repetir_la_conversion_no_publica_duplicados(self):

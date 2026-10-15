@@ -314,6 +314,7 @@ class SqliteTests(_Base):
             "grupo": "refrigerado",
             "grupo_fuente": "MANUAL",
             "formato_pdf": "AM613A",
+            "tienda": "14196",
         })
         self.assertEqual(SCHEMA_VERSION, "2")
 
