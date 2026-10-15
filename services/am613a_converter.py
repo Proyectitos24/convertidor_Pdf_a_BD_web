@@ -394,7 +394,7 @@ def _validar_totales(lineas, totales, problemas):
             )
 
 
-def cantidad_y_tipo(linea):
+def cantidad_y_tipo(linea, grupo=None):
     """
     (cantidad, tipo, problema). problema es None si la línea es válida.
     """
@@ -403,6 +403,12 @@ def cantidad_y_tipo(linea):
     s0 = s or 0
 
     if b0 > 0 and s0 > 0:
+        if grupo == "pollo_carne":
+            if t is None or uxb is None or uxb <= 0:
+                return None, None, "bultos y sueltas sin Total Unidades o UXB válido"
+            if t != b0 * uxb + s0:
+                return None, None, f"Total Unidades {t} no coincide con Bultos {b0} x UXB {uxb} + Und. Suel. {s0}"
+            return t, TIPO_UNIDAD, None
         return None, None, "tiene bultos y unidades sueltas a la vez"
     if b0 > 0:
         if t is not None and uxb is not None and t != b0 * uxb:
@@ -448,7 +454,7 @@ def _validar_colisiones_codigo(lineas, problemas):
             )
 
 
-def extraer_documento(doc):
+def extraer_documento(doc, grupo=None):
     """
     Extrae y valida todo el documento. Devuelve un dict con tienda,
     fecha, albaran, etiqueta, nombre_db y articulos (incluye el
@@ -465,7 +471,7 @@ def extraer_documento(doc):
 
     articulos = []
     for linea in lineas:
-        cantidad, tipo, problema = cantidad_y_tipo(linea)
+        cantidad, tipo, problema = cantidad_y_tipo(linea, grupo=grupo)
         if problema:
             problemas.append(f"Página {linea['pagina']}, código {linea['codigo']}: {problema}")
             continue
@@ -556,7 +562,7 @@ def process_pdf(pdf_path, out_root, grupo):
 
     doc = fitz.open(str(pdf_path))
     try:
-        datos = extraer_documento(doc)
+        datos = extraer_documento(doc, grupo=grupo)
     finally:
         doc.close()
 
