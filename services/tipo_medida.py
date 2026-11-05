@@ -41,7 +41,7 @@ PRODUCTOS_PRESENTACION_COMPLETA = frozenset({
 
 # Únicos valores del campo Formato con interpretación comprobada.
 FORMATO_A_TIPO = {"B": TIPO_BULTO, "U": TIPO_UNIDAD,
-                  "S": TIPO_SEMIPALE, "P": TIPO_PALE}
+                  "S": TIPO_SEMIPALE, "J": TIPO_SEMIPALE, "P": TIPO_PALE}
 
 COLUMNA_TIPO_MEDIDA = "TipoMedida"
 

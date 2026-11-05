@@ -175,7 +175,8 @@ def extract_items_from_page(page):
             if parsed:
                 tipo, problema = tm.tipo_de_linea(side, rangos_formato.get(lado))
                 if tipo in (tm.TIPO_SEMIPALE, tm.TIPO_PALE):
-                    if parsed[0] not in tm.PRODUCTOS_PRESENTACION_COMPLETA:
+                    if (parsed[0] not in tm.PRODUCTOS_PRESENTACION_COMPLETA
+                        and "J" not in tm.valores_en_columna(side, rangos_formato.get(lado))):
                         problema = "Presentación S/P sin equivalencia comprobada para este producto"
                     else:
                         parsed = (parsed[0], parsed[1], 1)
