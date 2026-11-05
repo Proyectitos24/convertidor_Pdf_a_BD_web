@@ -105,12 +105,12 @@ def _totales_impresos(pdf, formato):
 
 class ContratoTests(unittest.TestCase):
     def test_mapeo_exacto_b_y_u(self):
-        self.assertEqual(tm.FORMATO_A_TIPO, {"B": "bulto", "U": "unidad", "S": "semipale", "P": "pale"})
+        self.assertEqual(tm.FORMATO_A_TIPO, {"B": "bulto", "U": "unidad", "S": "semipale", "J": "semipale", "P": "pale"})
         self.assertEqual(tm.tipo_desde_formato(["B"]), ("bulto", None))
         self.assertEqual(tm.tipo_desde_formato(["U"]), ("unidad", None))
 
     def test_sin_coincidencias_parciales_ni_aproximaciones(self):
-        for valor in ("b", "u", " B", "B.", "BU", "UB", "Bulto", "UND", "J", "C", ""):
+        for valor in ("b", "u", " B", "B.", "BU", "UB", "Bulto", "UND", "C", ""):
             with self.subTest(valor=valor):
                 tipo, problema = tm.tipo_desde_formato([valor])
                 self.assertIsNone(tipo)
@@ -433,9 +433,9 @@ class Rf626aSinteticoTests(_Sintetico):
 
     def test_formato_desconocido_informa_pagina_y_articulo(self):
         p1 = ls.rf626a_pagina([ls.rf626a_fila(("135285", "YOGUR GRIEGO", 1, "B", 8))])
-        p2 = ls.rf626a_pagina([ls.rf626a_fila(None, ("13963", "LECHE ENTERA", 2, "J", 2))], pagina=2,
+        p2 = ls.rf626a_pagina([ls.rf626a_fila(None, ("13963", "LECHE ENTERA", 2, "C", 2))], pagina=2,
                               etiqueta="20022415822")
-        e = self._assert_documento_invalido([p1, p2], "Página 2, código 13963: Formato 'J' sin equivalencia")
+        e = self._assert_documento_invalido([p1, p2], "Página 2, código 13963: línea no reconocida con Formato 'C'")
         self.assertEqual(len(e.problemas), 1)
 
     def test_presentacion_desconocida_no_se_convierte_en_una(self):
@@ -512,7 +512,7 @@ class Rf626aSinteticoTests(_Sintetico):
 
     def test_un_error_en_una_etiqueta_impide_todas_las_del_documento(self):
         p1 = ls.rf626a_pagina([ls.rf626a_fila(("1111", "VALIDO", 1, "B", 8))], etiqueta="20022415821")
-        p2 = ls.rf626a_pagina([ls.rf626a_fila(("2222", "INVALIDO", 1, "J", 8))], etiqueta="20022415822", pagina=2)
+        p2 = ls.rf626a_pagina([ls.rf626a_fila(("2222", "INVALIDO", 1, "C", 8))], etiqueta="20022415822", pagina=2)
         self._assert_documento_invalido([p1, p2], "código 2222")
 
     def test_convertir_pdf_tambien_guarda_tipo_medida(self):
@@ -609,14 +609,14 @@ class Rf625aSinteticoTests(_Sintetico):
 
 class LoteTests(_Sintetico):
     def test_documento_invalido_no_detiene_los_demas_del_lote(self):
-        malo = self.rf626a([ls.rf626a_pagina([ls.rf626a_fila(("11", "A", 1, "J", 1))])], "malo.pdf").read_bytes()
+        malo = self.rf626a([ls.rf626a_pagina([ls.rf626a_fila(("11", "A", 1, "C", 1))])], "malo.pdf").read_bytes()
         bueno = self.rf626a([ls.rf626a_pagina([ls.rf626a_fila(("22", "B2", 1, "B", 1))], etiqueta="20022415999")], "bueno.pdf").read_bytes()
         rf625 = ls.escribir_pdf(self.dir / "c.pdf", [ls.rf625a_pagina([ls.rf625a_fila(("297243", "QUITA", 1, "U"))])]).read_bytes()
         generados, resumen = conversion_service.convert_uploaded_files(
             [FakeUpload("malo.pdf", malo), FakeUpload("bueno.pdf", bueno), FakeUpload("c.pdf", rf625)]
         )
         self.assertEqual({r["archivo"]: r["estado"] for r in resumen}, {"malo.pdf": "error", "bueno.pdf": "ok", "c.pdf": "ok"})
-        self.assertIn("Formato 'J'", next(r["detalle"] for r in resumen if r["archivo"] == "malo.pdf"))
+        self.assertIn("Formato 'C'", next(r["detalle"] for r in resumen if r["archivo"] == "malo.pdf"))
         self.assertEqual(len(generados), 2)
 
 
